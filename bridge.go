@@ -105,42 +105,47 @@ func Flush() {
 //
 //     qml.Changed(&value, &value.Field)
 //
-func Changed(value, fieldAddr interface{}) {
-	valuev := reflect.ValueOf(value)
-	fieldv := reflect.ValueOf(fieldAddr)
-	for valuev.Kind() == reflect.Ptr {
-		valuev = valuev.Elem()
-	}
-	for fieldv.Kind() == reflect.Ptr {
-		fieldv = fieldv.Elem()
-	}
-	if fieldv.Type().Size() == 0 {
-		panic("cannot report changes on zero-sized fields")
-	}
-	offset := fieldv.UnsafeAddr() - valuev.UnsafeAddr()
-	if !(0 <= offset && offset < valuev.Type().Size()) {
-		panic("provided field is not a member of the given value")
-	}
+func Changed(value interface, fieldAddrs ...interface{}) {
+	for _, addr := range fieldAddrs {
+		valuev := reflect.ValueOf(value)
+		fieldv := reflect.ValueOf(fieldAddr)
+		for valuev.Kind() == reflect.Ptr {
+			valuev = valuev.Elem()
+		}
+		for fieldv.Kind() == reflect.Ptr {
+			fieldv = fieldv.Elem()
+		}
+		if fieldv.Type().Size() == 0 {
+			panic("cannot report changes on zero-sized fields")
+		}
+		offset := fieldv.UnsafeAddr() - valuev.UnsafeAddr()
+		if offset == 0 {
+			panic("variadic parameter cannot be value itself, only its fields are accepted")
+		}
+		if !(0 <= offset && offset < valuev.Type().Size()) {
+			panic("provided field is not a member of the given value")
+		}
 
-	gui(func() {
-		tinfo := typeInfo(value)
-		for _, engine := range engines {
-			fold := engine.values[value]
-			for fold != nil {
-				C.goValueActivate(fold.cvalue, tinfo, C.int(offset))
-				fold = fold.next
-			}
-			// TODO typeNew might also be a linked list keyed by the gvalue.
-			//      This would prevent the iteration and the deferrals.
-			for fold, _ = range typeNew {
-				if fold.gvalue == value {
-					// Activate these later so they don't get recursively moved
-					// out of typeNew while the iteration is still happening.
-					defer C.goValueActivate(fold.cvalue, tinfo, C.int(offset))
+		gui(func() {
+			tinfo := typeInfo(value)
+			for _, engine := range engines {
+				fold := engine.values[value]
+				for fold != nil {
+					C.goValueActivate(fold.cvalue, tinfo, C.int(offset))
+					fold = fold.next
+				}
+				// TODO typeNew might also be a linked list keyed by the gvalue.
+				//      This would prevent the iteration and the deferrals.
+				for fold, _ = range typeNew {
+					if fold.gvalue == value {
+						// Activate these later so they don't get recursively moved
+						// out of typeNew while the iteration is still happening.
+						defer C.goValueActivate(fold.cvalue, tinfo, C.int(offset))
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 }
 
 // hookIdleTimer is run once per iteration of the Qt event loop,
